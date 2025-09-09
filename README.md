@@ -1,12 +1,26 @@
 
-# Comparativo de Modelos de Redes Neurais para Predição de Chuva Utilizando Dados de Radar Volumétricos
+# Predição de Chuva com Redes Neurais e Dados de Radar 3D
 
-Pipeline Order:
+Este projeto realiza o processamento de dados volumétricos de radar e treina modelos de redes neurais para prever chuva.
 
-- data_process.py
-- data_preprocess.py
-- data_resize.py (Change resized_train_data.nc to train_data.nc if that's what is going to train the model)
-- model_train.py
-- model_evaluation.ipynb
+## Pipeline de Processamento
 
-Por default a pasta de saída dos dados é `output_data`, que será a entrada para os modelos, e a saída dos modelos é `outputs`
+1. `data_process.py` — Processa os dados brutos.
+2. `data_preprocess.py` — Pré-processa os dados para uso nos modelos.
+3. `data_resize.py` — Redimensiona os dados conforme necessário.
+4. `model_train.py` — Treina o modelo de rede neural.
+5. `model_evaluation.ipynb` — Avalia o desempenho do modelo.
+
+## Estrutura de Pastas
+
+- Dados processados: `output_data`
+- Resultados dos modelos: `outputs`
+
+## Requisitos
+
+Consulte `requirements.txt` para instalar as dependências necessárias.
+Esse projeto funciona bem com uv.
+
+## Como executar
+
+Execute os scripts na ordem do pipeline para processar os dados e treinar o modelo.
