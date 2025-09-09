@@ -1,0 +1,22 @@
+
+00_old_files
+test*
+
+output_data/*
+!output_data/.gitkeep
+
+outputs/*
+!outputs/.gitkeep
+
+scaler.save
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
