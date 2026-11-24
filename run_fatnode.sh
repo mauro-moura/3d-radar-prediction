@@ -22,9 +22,27 @@ BASE=tensorflow/tensorflow:2.20.0
 IMAGE=${IMAGE:-radar-eval:tf2.20}
 RUN_ARGS=()
 if [[ "$GPU" == 1 ]]; then
+    # Docker >= 19.03 has --gpus; older versions (e.g. 18.09) need the nvidia runtime (nvidia-docker2).
+    DOCKER_VER=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo 0)
+    if printf '%s\n19.03\n' "$DOCKER_VER" | sort -V -C; then
+        if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+            RUN_ARGS+=(--runtime=nvidia -e "NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}")
+        else
+            echo "WARNING: Docker $DOCKER_VER has no --gpus and no 'nvidia' runtime (install nvidia-docker2). Using CPU."
+            GPU=0
+        fi
+    else
+        RUN_ARGS+=(--gpus all)
+    fi
+fi
+if [[ "$GPU" == 1 ]]; then
     BASE=tensorflow/tensorflow:2.20.0-gpu
     IMAGE=${IMAGE}-gpu
-    RUN_ARGS+=(--gpus all)
+    DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+    echo "NVIDIA driver: ${DRIVER:-unknown} (TensorFlow 2.20 GPU needs CUDA 12 => driver >= 525)"
+    if [[ -n "$DRIVER" ]] && ! printf '525\n%s\n' "$DRIVER" | sort -V -C; then
+        echo "WARNING: driver older than 525: TensorFlow will not see the GPU. Use GPU=0 to run on CPU."
+    fi
 fi
 [[ -n "${CPUS:-}" ]] && RUN_ARGS+=(--cpus "$CPUS")
 [[ -n "${MEMORY:-}" ]] && RUN_ARGS+=(--memory "$MEMORY")

@@ -5,7 +5,10 @@
 ARG BASE=tensorflow/tensorflow:2.20.0
 FROM ${BASE}
 
-RUN pip install --no-cache-dir \
+# pyparsing comes from apt in the base image and pip cannot uninstall it;
+# install a newer copy alongside it first, then the rest.
+RUN pip install --no-cache-dir --ignore-installed pyparsing && \
+    pip install --no-cache-dir \
         keras==3.11.3 \
         xarray netcdf4 pandas scikit-learn joblib matplotlib \
         pysteps opencv-python-headless
