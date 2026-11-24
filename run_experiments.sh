@@ -5,10 +5,9 @@
 #   3. Figures with shared colour scale, colour bars and lon/lat axes
 #   4. DLinear grid search with the kernel_size bug fixed (kernels 3, 5)
 #
-# Usage (from the repo root, inside the environment with tensorflow):
-#   pip install pysteps opencv-python-headless     # once, optional (PySTEPS baseline)
-#   nohup bash run_netuno.sh > run_netuno.log 2>&1 &
-#   tail -f run_netuno.log
+# Normally launched inside Docker by run_fatnode.sh. It also runs directly in
+# any environment with the dependencies of docker/Dockerfile:
+#   bash run_experiments.sh
 #
 # Variables you can override:
 #   PYTHON=python3            interpreter

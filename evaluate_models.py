@@ -15,7 +15,7 @@ What it does
 
 Models are fed exactly as during training (utils.prepare_data).
 
-Usage (see run_netuno.sh):
+Usage (see run_experiments.sh):
     python evaluate_models.py \
         --model "DLinear=outputs/DLinear_final_model_test_run.h5" \
         --model "ConvLSTM3D=outputs/ConvLSTM_12_test_run.h5" \
