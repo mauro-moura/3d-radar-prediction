@@ -1,152 +1,130 @@
+"""
+Grid search + final training for DLinear.
 
+Fixes w.r.t. the version used in the EAMC paper:
+  * `kernel_size` from the grid is now actually passed to the model (before it
+    was silently ignored and every run used kernel_size=25).
+  * Default kernels are 3 and 5: with seq_len=10, kernels >= 10 average the
+    whole input window, so the old values (15, 25) were equivalent.
+  * Per-fold validation MSE (and mean/std across folds) is saved to JSON.
+
+The cross-validation protocol is kept identical to the paper (shuffled 5-fold
+KFold over sliding windows, seed 42) so the results stay comparable.
+
+Usage:
+    python model_train_grid_search_dlinear.py --exp-name kernel_fix
+    python model_train_grid_search_dlinear.py --kernels 3 5 9 --epochs 50 100
+"""
 import os
+import json
+import argparse
+
 import numpy as np
 import xarray as xr
-from sklearn.model_selection import train_test_split
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from sklearn.model_selection import KFold, ParameterGrid
 
-from models.conv_lstm import build_model as ConvLSTMArch
-from models.dlinear import build_dlinear as DLinearArch
+from models.dlinear import build_dlinear
+from utils import prepare_data
 
-cfg = {
-    "data_path": "output_data/train_data.nc",
-    "target_var": "dbzh",
-    "architecture": "DLinear",  # "ConvLSTM" or "DLinear"
-    "seq_len": 10,
-    "pred_len": 1,
-    "epochs": 1,
-    "batch_size": 32,
-    "output_path": "outputs/",
-    "exp_name": "test_run"
-}
 
-def prepare_data(arr, seq_len, pred_len=1):
-    timestamps = arr.shape[0]
-    data_points = 1 # e.g., 1 variable/feature
-    altitude = arr.shape[-1]
-    latitude = arr.shape[1]
-    longitude = arr.shape[2]
+def make_callbacks():
+    return [
+        EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5),
+    ]
 
-    arr = arr.reshape(timestamps, data_points, altitude, latitude, longitude)
 
-    if cfg.get("architecture") == "DLinear":
-        # Flatten spatial dims -> cada ponto espacial vira um feature
-        features = data_points * altitude * latitude * longitude
-        arr = arr.reshape(timestamps, features)  # (timestamps, features)
-
-    X, y = [], []
-
-    for i in range(timestamps - seq_len - pred_len + 1):
-        seq_x = arr[i:i+seq_len]
-        # seq_y = arr[i+seq_len:i+seq_len+pred_len]
-        seq_y = arr[i+seq_len]
-
-        if cfg.get("architecture") != "DLinear":
-            seq_x = np.transpose(seq_x, (0, 2, 3, 4, 1))  # (seq_len, alt, lat, lon, channels)
-            seq_y = np.transpose(seq_y, (1, 2, 3, 0))    # (alt, lat, lon, channels)
-        
-        X.append(seq_x)
-        y.append(seq_y)
-
-    X = np.array(X)
-    y = np.array(y)
-
-    return X, y
-
-def mse(y_true, y_pred):
-    return np.mean((y_true - y_pred) ** 2)
-
-def build_model(params=None):
-    model = None
-    if cfg.get("architecture") == "ConvLSTM":
-        model = ConvLSTMArch(X_train.shape[1:], filters=params["filters"])
-    elif cfg.get("architecture") == "DLinear":
-        model = DLinearArch(seq_len=cfg["seq_len"], features=features, pred_len=cfg["pred_len"])
+def build_model(seq_len, features, pred_len, kernel_size):
+    model = build_dlinear(seq_len=seq_len, features=features, pred_len=pred_len, kernel_size=kernel_size)
+    model.optimizer.learning_rate = 1e-3
     return model
 
-if __name__ == "__main__":
-    ds = xr.open_dataset(cfg.get("data_path"))
-    arr = ds[cfg.get("target_var")].values
 
-    param_grid = {
-        "kernel_size": [15, 25],
-        "batch_size": [16, 32],
-        "epochs": [50, 100]
-    }
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--data-path", default="output_data/train_data.nc")
+    parser.add_argument("--target-var", default="dbzh")
+    parser.add_argument("--output-path", default="outputs/")
+    parser.add_argument("--exp-name", default="kernel_fix")
+    parser.add_argument("--seq-len", type=int, default=10)
+    parser.add_argument("--pred-len", type=int, default=1)
+    parser.add_argument("--kernels", type=int, nargs="+", default=[3, 5])
+    parser.add_argument("--batch-sizes", type=int, nargs="+", default=[16, 32])
+    parser.add_argument("--epochs", type=int, nargs="+", default=[50, 100])
+    parser.add_argument("--n-splits", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--save-fold-models", action="store_true",
+                        help="Also save each fold model (not needed for evaluation).")
+    args = parser.parse_args()
 
-    seed = 42
-    grid = list(ParameterGrid(param_grid))
+    for k in args.kernels:
+        if k >= args.seq_len:
+            print(f"WARNING: kernel_size={k} >= seq_len={args.seq_len}: the trend becomes ~the window mean.")
+
+    os.makedirs(args.output_path, exist_ok=True)
+    cfg = {"architecture": "DLinear"}
+
+    ds = xr.open_dataset(args.data_path)
+    arr = ds[args.target_var].values
+    X, y = prepare_data(arr, args.seq_len, args.pred_len, cfg=cfg)
+    seq_len, features = X.shape[1], X.shape[2]
+    print("X shape:", X.shape, "| y shape:", y.shape)
+
+    grid = list(ParameterGrid({
+        "kernel_size": args.kernels,
+        "batch_size": args.batch_sizes,
+        "epochs": args.epochs,
+    }))
     print(f"Total combinations: {len(grid)}")
-    kf = KFold(n_splits=5, shuffle=True, random_state=seed)
-
-    timestamps = arr.shape[0]
-    data_points = 1
-    altitude = arr.shape[-1]
-    latitude = arr.shape[1]
-    longitude = arr.shape[2]
-    seq_len = cfg.get("seq_len")
-
-    print(f"Selected model: {cfg.get('architecture')}")
-    print(f"Params: cfg={cfg}")
-
-    X, y = prepare_data(arr, cfg["seq_len"], cfg["pred_len"])
-    print("X shape:", X.shape)
-    print("y shape:", y.shape)
+    kf = KFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
 
     results = []
-    model_id = 0
-    for params in grid:
-        print("Testing params:", params)
+    for gi, params in enumerate(grid):
+        print(f"[{gi + 1}/{len(grid)}] Testing params: {params}")
         fold_mse = []
-
-        for train_idx, val_idx in kf.split(X):
-            X_train, X_val = X[train_idx], X[val_idx]
-            y_train, y_val = y[train_idx], y[val_idx]
-
-            seq_len, features = X_train.shape[1], X_train.shape[2]
-            
-            # Add callbacks if needed (e.g., EarlyStopping, ModelCheckpoint)
-            callbacks = [
-                EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
-                ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5)
-            ]
-            if not os.path.exists(cfg.get("output_path")):
-                os.makedirs(cfg.get("output_path"))
-
-            model = build_model(params)
-            
-            model.optimizer.learning_rate = 1e-3
-            
-            # Train
-            hist = model.fit(
-                X_train, y_train,
-                validation_data=(X_val, y_val),
+        for fi, (train_idx, val_idx) in enumerate(kf.split(X)):
+            model = build_model(seq_len, features, args.pred_len, params["kernel_size"])
+            model.fit(
+                X[train_idx], y[train_idx],
+                validation_data=(X[val_idx], y[val_idx]),
                 epochs=params["epochs"],
                 batch_size=params["batch_size"],
-                callbacks=callbacks
+                callbacks=make_callbacks(),
+                verbose=2,
             )
+            val_mse = float(model.evaluate(X[val_idx], y[val_idx], verbose=0))
+            fold_mse.append(val_mse)
+            print(f"   fold {fi + 1}: val MSE (normalized) = {val_mse:.6f}")
+            if args.save_fold_models:
+                model.save(os.path.join(args.output_path, f"DLinear_{args.exp_name}_g{gi}_f{fi}.keras"))
 
-            model.save(os.path.join(cfg.get("output_path"), f"{cfg.get('architecture')}_{model_id}_{cfg.get('exp_name')}.h5"))
-            np.save(os.path.join(cfg.get("output_path"), f"{cfg.get('architecture')}_{model_id}_hist_{cfg.get('exp_name')}.npy"), hist.history)
-            model_id += 1
+        results.append({
+            "params": params,
+            "fold_mse": fold_mse,
+            "mse": float(np.mean(fold_mse)),
+            "mse_std_across_folds": float(np.std(fold_mse, ddof=1)),
+        })
+        # write after each combination so partial results survive a crash
+        with open(os.path.join(args.output_path, f"DLinear_grid_{args.exp_name}.json"), "w") as f:
+            json.dump(results, f, indent=2)
 
-            # Evaluate on validation fold
-            model_metric = model.evaluate(X_val, y_val)
-            fold_mse.append(model_metric)
-        
-        results.append({"params": params, "mse": np.mean(fold_mse)})
+    results = sorted(results, key=lambda r: r["mse"])
+    best = results[0]
+    print("Grid search completed. Best:", best)
+    with open(os.path.join(args.output_path, f"DLinear_grid_{args.exp_name}.json"), "w") as f:
+        json.dump(results, f, indent=2)
 
-    print("Grid search completed.")
-    print("Results:", results)
-    # Sort best results
-    results = sorted(results, key=lambda x: x["mse"])
-    print("Best params:", results[0])
+    # Final model on all training windows with the best params
+    bp = best["params"]
+    model = build_model(seq_len, features, args.pred_len, bp["kernel_size"])
+    hist = model.fit(X, y, epochs=bp["epochs"], batch_size=bp["batch_size"],
+                     validation_split=0.15, callbacks=make_callbacks(), verbose=2)
+    final_path = os.path.join(args.output_path, f"DLinear_final_model_{args.exp_name}.keras")
+    model.save(final_path)
+    np.save(os.path.join(args.output_path, f"DLinear_final_model_hist_{args.exp_name}.npy"), hist.history)
+    print("Final model saved to", final_path)
 
-    # Train final model with best params
-    best_params = results[0]["params"]
-    model = build_model(best_params)
-    hist = model.fit(X, y, epochs=best_params["epochs"], batch_size=best_params["batch_size"], validation_split=0.15)
-    model.save(os.path.join(cfg.get("output_path"), f"{cfg.get('architecture')}_final_model_{cfg.get('exp_name')}.h5"))
-    np.save(os.path.join(cfg.get("output_path"), f"{cfg.get('architecture')}_final_model_hist_{cfg.get('exp_name')}.npy"), hist.history)
-    print("Final model trained and saved.")
+
+if __name__ == "__main__":
+    main()

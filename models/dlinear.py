@@ -3,6 +3,7 @@ import numpy as np
 
 import tensorflow as tf
 
+import keras
 from keras import Input, Model, ops
 from keras import layers
 
@@ -18,12 +19,14 @@ class SeriesDecomposition(layers.Layer):
         seasonal = x - trend
         return seasonal, trend
 
+@keras.saving.register_keras_serializable(package="radar")
 class DLinear(Model):
     def __init__(self, seq_len, pred_len, features, kernel_size=25, **kwargs):
         super(DLinear, self).__init__(**kwargs)
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.features = features
+        self.kernel_size = kernel_size
         self.decomposition = SeriesDecomposition(kernel_size)
 
         # Linear mappings: map from seq_len -> pred_len per feature
@@ -55,6 +58,7 @@ class DLinear(Model):
             "seq_len": self.seq_len,
             "pred_len": self.pred_len,
             "features": self.features,
+            "kernel_size": self.kernel_size,
         })
         return config
 
@@ -69,7 +73,9 @@ class DLinear(Model):
 
 def build_dlinear(seq_len, features, pred_len=1, kernel_size=25):
     inputs = Input(shape=(seq_len, features))
-    dlinear_model = DLinear(seq_len, pred_len, kernel_size)
+    # BUGFIX: before, kernel_size was passed positionally into the `features`
+    # slot, so every DLinear trained with the default kernel_size=25.
+    dlinear_model = DLinear(seq_len=seq_len, pred_len=pred_len, features=features, kernel_size=kernel_size)
     outputs = dlinear_model(inputs)
     model = Model(inputs, outputs, name="DLinear")
     model.compile(optimizer="adam", loss="mse")
