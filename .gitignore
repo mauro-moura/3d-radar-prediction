@@ -1,6 +1,7 @@
 
 00_old_files
 test*
+docs
 
 output_data/*
 !output_data/.gitkeep

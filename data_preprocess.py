@@ -1,3 +1,11 @@
+
+"""
+Script to preprocess and normalize data stored in NetCDF files.
+Create Windows of 11 timestamps where all values are different from zero,
+then normalize the data between 0.1 and 0.9 using MinMaxScaler.
+Saves the normalized data to a new NetCDF file.
+"""
+
 import os
 import glob
 import joblib
@@ -14,8 +22,9 @@ if __name__ == "__main__":
     window_size = 11
     scaler_name = 'scaler.save'
     is_train = True
+    process_name = 'raw'
     exec_name = 'train' if is_train else 'test'
-    all_files = glob.glob(os.path.join('output_data', 'data_nc', exec_name, f'data_{data_ext}', f'*.{data_ext}'))
+    all_files = glob.glob(os.path.join('output_data', f'data_{data_ext}', process_name, exec_name, f'*.{data_ext}'))
     all_files.sort()
     print(f"Found {len(all_files)} files with extension {data_ext}.")
 

@@ -16,7 +16,9 @@ if __name__ == "__main__":
         BASE_PATH = "D:\\Drives\\LNCC\\DEXL\\Radar Rionowcast\\processed_parts"
 
     all_files = glob.glob(os.path.join(BASE_PATH, "*.parquet"))
-    OUTPUT_PATH = "./output_data/data_nc"
+    OUTPUT_PATH = "./output_data/data_nc/raw/"
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
+    fill_na = False
     year = 2022
 
     # Group files by first 10 chars (YYYY-MM-DD)
@@ -28,8 +30,9 @@ if __name__ == "__main__":
     print(f"Found {len(groups)} groups")
 
     # group = groups[0]
-    for group in groups:
-        print(f"Processing group: {group}")
+    group_size = len(groups)
+    for i, group in enumerate(groups):
+        print(f"{i+1}/{group_size} Processing group: {group}")
         df = pd.DataFrame()
 
         for file in all_files:
@@ -79,9 +82,9 @@ if __name__ == "__main__":
             }
         )
 
-        ds = ds.fillna(0)
+        output_filename = f"data_{group}.nc"
+        if fill_na:
+            ds = ds.fillna(0)
+            output_filename = f"data_{group}_filled.nc"
 
-        # data_filled = ds["dbzh"].values
-        # np.save(os.path.join(OUTPUT_PATH, f"data_{group}.npy"), data_filled)
-
-        ds.to_netcdf(os.path.join(OUTPUT_PATH, f"data_{group}.nc"))
+        ds.to_netcdf(os.path.join(OUTPUT_PATH, output_filename))
