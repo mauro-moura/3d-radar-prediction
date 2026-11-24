@@ -5,10 +5,13 @@
 ARG BASE=tensorflow/tensorflow:2.20.0
 FROM ${BASE}
 
-# pyparsing comes from apt in the base image and pip cannot uninstall it;
-# install a newer copy alongside it first, then the rest.
-RUN pip install --no-cache-dir --ignore-installed pyparsing && \
-    pip install --no-cache-dir \
+# Packages go into a venv that sees the base image's TensorFlow
+# (--system-site-packages). pip then never uninstalls anything from the base
+# layers, which fails with "Directory not empty" on old Docker storage drivers.
+RUN python3 -m venv --system-site-packages /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+RUN pip install --no-cache-dir \
         keras==3.11.3 \
         xarray netcdf4 pandas scikit-learn joblib matplotlib \
         pysteps opencv-python-headless
